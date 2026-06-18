@@ -1,4 +1,4 @@
-name: Story → Buffer + ntfy
+name: Story → Buffer (Multi-Platform)
 
 on:
   push:
@@ -31,10 +31,14 @@ jobs:
           META="${{ steps.info.outputs.meta }}"
           if [ -f "$META" ]; then
             CAPTION=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('caption',''))")
+            CAPTION_FB=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('caption_facebook', d.get('caption','')))")
+            CAPTION_LI=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('caption_linkedin', d.get('caption','')))")
             BLOG_URL=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('blog_url','https://basariustasi.com'))")
             TITLE=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('title','Haftanın İpucu'))")
           else
             CAPTION="💡 Haftanın ipucu — Detaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret"
+            CAPTION_FB="$CAPTION"
+            CAPTION_LI="$CAPTION"
             BLOG_URL="https://basariustasi.com"
             TITLE="Story Hazır"
           fi
@@ -42,93 +46,171 @@ jobs:
             echo "caption<<ENDOFCAPTION"
             echo "$CAPTION"
             echo "ENDOFCAPTION"
+            echo "caption_fb<<ENDOFCAPTION_FB"
+            echo "$CAPTION_FB"
+            echo "ENDOFCAPTION_FB"
+            echo "caption_li<<ENDOFCAPTION_LI"
+            echo "$CAPTION_LI"
+            echo "ENDOFCAPTION_LI"
           } >> $GITHUB_OUTPUT
           echo "blog_url=$BLOG_URL" >> $GITHUB_OUTPUT
           echo "title=$TITLE" >> $GITHUB_OUTPUT
 
-      - name: Buffer'a post at
+      - name: Tüm platformlara post at
         id: buffer
         run: |
           sleep 5
           python3 - << 'PYEOF'
-          import json, subprocess, sys
+import json, subprocess, sys, os
 
-          token = "${{ secrets.BUFFER_TOKEN }}"
-          channel_id = "6a3270e538b5579345a4cd66"
-          img_url = "${{ steps.info.outputs.img_url }}"
-          blog_url = "${{ steps.meta.outputs.blog_url }}"
+TOKEN = "${{ secrets.BUFFER_TOKEN }}"
+ORG_ID = "5ea568a297b7045b7834a7e8"
+IMG_URL = "${{ steps.info.outputs.img_url }}"
+BLOG_URL = "${{ steps.meta.outputs.blog_url }}"
+META_FILE = "${{ steps.info.outputs.meta }}"
 
-          # Caption dosyadan oku (multiline sorun yaşamamak için)
-          import os
-          meta_file = "${{ steps.info.outputs.meta }}"
-          if os.path.exists(meta_file):
-              with open(meta_file) as f:
-                  meta = json.load(f)
-              caption = meta.get("caption", "💡 Haftanın ipucu\n\nDetaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret")
-          else:
-              caption = "💡 Haftanın ipucu\n\nDetaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret"
+def gql(query, variables=None):
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
+    r = subprocess.run(
+        ["curl", "-s", "-X", "POST",
+         "-H", f"Authorization: Bearer {TOKEN}",
+         "-H", "Content-Type: application/json",
+         "--data-binary", json.dumps(payload),
+         "https://api.buffer.com/graphql"],
+        capture_output=True, text=True
+    )
+    return json.loads(r.stdout)
 
-          query = """
-          mutation CreatePost($input: CreatePostInput!) {
-            createPost(input: $input) {
-              ... on PostActionSuccess { post { id status dueAt } }
-              ... on InvalidInputError  { message }
-              ... on LimitReachedError  { message }
-              ... on UnauthorizedError  { message }
-              ... on UnexpectedError    { message }
-            }
-          }
-          """
+# Metadata dosyasından caption'ları oku
+if os.path.exists(META_FILE):
+    with open(META_FILE) as f:
+        meta = json.load(f)
+    caption_ig = meta.get("caption", "💡 Haftanın ipucu\n\nDetaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret")
+    caption_fb = meta.get("caption_facebook", caption_ig)
+    caption_li = meta.get("caption_linkedin", caption_ig)
+    caption_tw = meta.get("caption_twitter", meta.get("title", "Haftanın İpucu") + "\n\n" + BLOG_URL)
+else:
+    caption_ig = "💡 Haftanın ipucu\n\nDetaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret"
+    caption_fb = caption_ig
+    caption_li = caption_ig
+    caption_tw = caption_ig
 
-          variables = {
-            "input": {
-              "channelId": channel_id,
-              "text": caption,
-              "assets": [{"image": {"url": img_url}}],
-              "schedulingType": "automatic",
-              "mode": "addToQueue",
-              "metadata": {"instagram": {"type": "story", "shouldShareToFeed": False}}
-            }
-          }
+# Tüm kanalları çek
+channels_data = gql(f'{{ channels(input: {{organizationId: "{ORG_ID}"}}) {{ id name service }} }}')
+channels = channels_data.get("data", {}).get("channels", [])
+print(f"Bulunan kanallar: {[(c['name'], c['service']) for c in channels]}")
 
-          payload = json.dumps({"query": query, "variables": variables})
-          result = subprocess.run(
-            ["curl", "-s", "-X", "POST",
-             "-H", f"Authorization: Bearer {token}",
-             "-H", "Content-Type: application/json",
-             "--data-binary", payload,
-             "https://api.buffer.com/graphql"],
-            capture_output=True, text=True
-          )
-          print("Buffer yanıtı:", result.stdout)
-          data = json.loads(result.stdout)
-          post = data.get("data", {}).get("createPost", {}).get("post", {})
-          if post.get("id"):
-              with open("/tmp/post_id.txt", "w") as f:
-                  f.write(post["id"])
-              print(f"Başarı: Post ID = {post['id']}")
-          else:
-              err = data.get("data", {}).get("createPost", {}).get("message", str(data))
-              print(f"HATA: {err}")
-              sys.exit(1)
-          PYEOF
+CREATE_POST = """
+mutation CreatePost($input: CreatePostInput!) {
+  createPost(input: $input) {
+    ... on PostActionSuccess { post { id status dueAt } }
+    ... on InvalidInputError  { message }
+    ... on LimitReachedError  { message }
+    ... on UnauthorizedError  { message }
+    ... on UnexpectedError    { message }
+  }
+}
+"""
+
+# Platform bazlı ayarlar
+def get_post_input(channel):
+    service = channel["service"]
+    channel_id = channel["id"]
+
+    if service == "instagram":
+        return {
+            "channelId": channel_id,
+            "text": caption_ig,
+            "assets": [{"image": {"url": IMG_URL}}],
+            "schedulingType": "automatic",
+            "mode": "addToQueue",
+            "metadata": {"instagram": {"type": "story", "shouldShareToFeed": False}}
+        }
+    elif service == "facebook":
+        return {
+            "channelId": channel_id,
+            "text": caption_fb + f"\n\n🔗 {BLOG_URL}",
+            "assets": [{"image": {"url": IMG_URL}}],
+            "schedulingType": "automatic",
+            "mode": "addToQueue"
+        }
+    elif service == "linkedin":
+        return {
+            "channelId": channel_id,
+            "text": caption_li + f"\n\n{BLOG_URL}",
+            "assets": [{"image": {"url": IMG_URL}}],
+            "schedulingType": "automatic",
+            "mode": "addToQueue"
+        }
+    elif service in ("twitter", "x"):
+        return {
+            "channelId": channel_id,
+            "text": caption_tw[:270] + f"\n{BLOG_URL}",
+            "assets": [{"image": {"url": IMG_URL}}],
+            "schedulingType": "automatic",
+            "mode": "addToQueue"
+        }
+    else:
+        # Bilinmeyen platform — standart post
+        return {
+            "channelId": channel_id,
+            "text": caption_ig,
+            "assets": [{"image": {"url": IMG_URL}}],
+            "schedulingType": "automatic",
+            "mode": "addToQueue"
+        }
+
+post_ids = []
+errors = []
+
+for ch in channels:
+    service = ch["service"]
+    name = ch["name"]
+    print(f"\n→ {name} ({service}) için post oluşturuluyor...")
+    inp = get_post_input(ch)
+    result = gql(CREATE_POST, {"input": inp})
+    post = result.get("data", {}).get("createPost", {}).get("post", {})
+    if post.get("id"):
+        print(f"  ✅ Başarı: {post['id']} — {post.get('dueAt','?')}")
+        post_ids.append(f"{name}({service}):{post['id']}")
+    else:
+        err = result.get("data", {}).get("createPost", {}).get("message", str(result))
+        print(f"  ❌ Hata: {err}")
+        errors.append(f"{name}: {err}")
+
+# Sonuçları dosyaya yaz (ntfy adımı için)
+with open("/tmp/post_ids.txt", "w") as f:
+    f.write("\n".join(post_ids))
+
+if errors:
+    with open("/tmp/post_errors.txt", "w") as f:
+        f.write("\n".join(errors))
+    print(f"\n⚠️ Hatalar: {errors}")
+    sys.exit(1)
+
+print(f"\n✅ Toplam {len(post_ids)} platform")
+PYEOF
 
       - name: ntfy bildirimi gönder
         run: |
-          POST_ID=$(cat /tmp/post_id.txt 2>/dev/null || echo "?")
+          POST_IDS=$(cat /tmp/post_ids.txt 2>/dev/null | tr '\n' ' ' || echo "?")
+          PLATFORM_COUNT=$(cat /tmp/post_ids.txt 2>/dev/null | wc -l || echo "0")
           curl -s \
-            -H "Title: Story Buffer'da Hazır ✅" \
+            -H "Title: Story ${PLATFORM_COUNT} Platformda Hazır ✅" \
             -H "Priority: default" \
             -H "Tags: sparkles,instagram" \
-            -d "${{ steps.meta.outputs.title }} — Buffer kuyruğuna eklendi (Post: ${POST_ID}). Instagram'da Link sticker → ${{ steps.meta.outputs.blog_url }}" \
+            -d "${{ steps.meta.outputs.title }} — Buffer'a eklendi: ${POST_IDS}" \
             https://ntfy.sh/basariustasi-ajans-2026
 
       - name: Hata bildirimi
         if: failure()
         run: |
+          ERRORS=$(cat /tmp/post_errors.txt 2>/dev/null || echo "Detay yok")
           curl -s \
             -H "Title: Story Actions HATA ❌" \
             -H "Priority: high" \
             -H "Tags: warning" \
-            -d "GitHub Actions buffer-post workflow başarısız. https://github.com/${{ github.repository }}/actions adresini kontrol et." \
+            -d "GitHub Actions buffer-post workflow başarısız. Hatalar: ${ERRORS} — https://github.com/${{ github.repository }}/actions" \
             https://ntfy.sh/basariustasi-ajans-2026
