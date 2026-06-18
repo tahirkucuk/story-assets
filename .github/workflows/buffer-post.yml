@@ -85,7 +85,7 @@ jobs:
               "channelId": channel_id,
               "text": caption,
               "assets": [{"image": {"url": img_url}}],
-              "schedulingType": "notification",
+              "schedulingType": "automatic",
               "mode": "addToQueue",
               "metadata": {"instagram": {"type": "story", "shouldShareToFeed": False}}
             }
