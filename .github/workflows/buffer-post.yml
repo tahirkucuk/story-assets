@@ -1,0 +1,134 @@
+name: Story → Buffer + ntfy
+
+on:
+  push:
+    paths:
+      - 'story-*.jpg'
+    branches:
+      - main
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Dosya bilgilerini al
+        id: info
+        run: |
+          FILENAME=$(git diff-tree --no-commit-id -r --name-only ${{ github.sha }} | grep 'story-.*\.jpg' | head -1)
+          DATE=$(echo "$FILENAME" | grep -o '[0-9]\{8\}')
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+          echo "date=$DATE" >> $GITHUB_OUTPUT
+          echo "meta=story-${DATE}.json" >> $GITHUB_OUTPUT
+          echo "img_url=https://raw.githubusercontent.com/${{ github.repository }}/main/$FILENAME" >> $GITHUB_OUTPUT
+
+      - name: Metadata oku
+        id: meta
+        run: |
+          META="${{ steps.info.outputs.meta }}"
+          if [ -f "$META" ]; then
+            CAPTION=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('caption',''))")
+            BLOG_URL=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('blog_url','https://basariustasi.com'))")
+            TITLE=$(python3 -c "import json; d=json.load(open('$META')); print(d.get('title','Haftanın İpucu'))")
+          else
+            CAPTION="💡 Haftanın ipucu — Detaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret"
+            BLOG_URL="https://basariustasi.com"
+            TITLE="Story Hazır"
+          fi
+          {
+            echo "caption<<ENDOFCAPTION"
+            echo "$CAPTION"
+            echo "ENDOFCAPTION"
+          } >> $GITHUB_OUTPUT
+          echo "blog_url=$BLOG_URL" >> $GITHUB_OUTPUT
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+
+      - name: Buffer'a post at
+        id: buffer
+        run: |
+          sleep 5
+          python3 - << 'PYEOF'
+          import json, subprocess, sys
+
+          token = "${{ secrets.BUFFER_TOKEN }}"
+          channel_id = "6a3270e538b5579345a4cd66"
+          img_url = "${{ steps.info.outputs.img_url }}"
+          blog_url = "${{ steps.meta.outputs.blog_url }}"
+
+          # Caption dosyadan oku (multiline sorun yaşamamak için)
+          import os
+          meta_file = "${{ steps.info.outputs.meta }}"
+          if os.path.exists(meta_file):
+              with open(meta_file) as f:
+                  meta = json.load(f)
+              caption = meta.get("caption", "💡 Haftanın ipucu\n\nDetaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret")
+          else:
+              caption = "💡 Haftanın ipucu\n\nDetaylar için ↑ linke tıkla\n\n#trendyol #trendyolsatici #eticaret"
+
+          query = """
+          mutation CreatePost($input: CreatePostInput!) {
+            createPost(input: $input) {
+              ... on PostActionSuccess { post { id status dueAt } }
+              ... on InvalidInputError  { message }
+              ... on LimitReachedError  { message }
+              ... on UnauthorizedError  { message }
+              ... on UnexpectedError    { message }
+            }
+          }
+          """
+
+          variables = {
+            "input": {
+              "channelId": channel_id,
+              "text": caption,
+              "assets": [{"image": {"url": img_url}}],
+              "schedulingType": "notification",
+              "mode": "addToQueue",
+              "metadata": {"instagram": {"type": "story", "shouldShareToFeed": False}}
+            }
+          }
+
+          payload = json.dumps({"query": query, "variables": variables})
+          result = subprocess.run(
+            ["curl", "-s", "-X", "POST",
+             "-H", f"Authorization: Bearer {token}",
+             "-H", "Content-Type: application/json",
+             "--data-binary", payload,
+             "https://api.buffer.com/graphql"],
+            capture_output=True, text=True
+          )
+          print("Buffer yanıtı:", result.stdout)
+          data = json.loads(result.stdout)
+          post = data.get("data", {}).get("createPost", {}).get("post", {})
+          if post.get("id"):
+              with open("/tmp/post_id.txt", "w") as f:
+                  f.write(post["id"])
+              print(f"Başarı: Post ID = {post['id']}")
+          else:
+              err = data.get("data", {}).get("createPost", {}).get("message", str(data))
+              print(f"HATA: {err}")
+              sys.exit(1)
+          PYEOF
+
+      - name: ntfy bildirimi gönder
+        run: |
+          POST_ID=$(cat /tmp/post_id.txt 2>/dev/null || echo "?")
+          curl -s \
+            -H "Title: Story Buffer'da Hazır ✅" \
+            -H "Priority: default" \
+            -H "Tags: sparkles,instagram" \
+            -d "${{ steps.meta.outputs.title }} — Buffer kuyruğuna eklendi (Post: ${POST_ID}). Instagram'da Link sticker → ${{ steps.meta.outputs.blog_url }}" \
+            https://ntfy.sh/basariustasi-ajans-2026
+
+      - name: Hata bildirimi
+        if: failure()
+        run: |
+          curl -s \
+            -H "Title: Story Actions HATA ❌" \
+            -H "Priority: high" \
+            -H "Tags: warning" \
+            -d "GitHub Actions buffer-post workflow başarısız. https://github.com/${{ github.repository }}/actions adresini kontrol et." \
+            https://ntfy.sh/basariustasi-ajans-2026
