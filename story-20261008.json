@@ -1,0 +1,8 @@
+{
+  "title": "Trendyol API Değişiyor — Hazır mısın?",
+  "caption": "🚨 Trendyol'dan kritik iki değişiklik!\n\n✅ 15 Ekim: Sipariş V1 API tamamen kapanıyor — V2'ye geçmeyenler siparişlerini çekemeyecek\n✅ 23 Ekim: Origin (menşei) alanı zorunlu hale geliyor — göndermeyenler ürün güncelleyemeyecek\n\nHemen yapılacaklar:\n1️⃣ V1 API'den V2'ye geç\n2️⃣ Origin alanını payload'a ekle\n3️⃣ Sayfalama mantığını güncelle\n4️⃣ Test ortamında doğrula\n\nDetaylar blog'da 👇\nhttps://basariustasi.com/trendyol-duyuru-ekim-api-origin-zorunlu.html\n\n#Trendyol #TrendyolSatıcı #ECommerceAPI #TrendyolEntegrasyon #OnlineSatış #BasarıUstası",
+  "caption_facebook": "🚨 Trendyol Satıcılarına Kritik Duyuru: Ekim 2026'da İki Büyük Değişiklik\n\n15 Ekim itibariyle Sipariş V1 API tamamen devre dışı kalıyor. V2'ye geçmemiş entegrasyonlar artık sipariş çekemeyecek, durum güncelleyemeyecek.\n\n23 Ekim'den itibaren de ürün payload'ında 'origin' (menşei) alanı zorunlu hale geliyor. Bu alanı eklemeyen ürün oluşturma ve güncelleme istekleri reddedilecek.\n\nTüm teknik detaylar ve adım adım rehber için: https://basariustasi.com/trendyol-duyuru-ekim-api-origin-zorunlu.html",
+  "caption_linkedin": "Trendyol Ekim 2026 entegrasyon değişiklikleri hakkında önemli güncelleme:\n\n• 15 Ekim: Sipariş V1 API kapatılıyor (V2 geçişi zorunlu)\n• 23 Ekim: Origin alanı ürün payload'ında zorunlu hale geliyor\n\nSatıcı ve yazılım ekiplerinin bu tarihleri takvime almasını öneririm. Teknik detaylar: https://basariustasi.com/trendyol-duyuru-ekim-api-origin-zorunlu.html",
+  "blog_url": "https://basariustasi.com/trendyol-duyuru-ekim-api-origin-zorunlu.html",
+  "date": "20261008"
+}
